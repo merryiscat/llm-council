@@ -1,4 +1,4 @@
-"""FastAPI backend for LLM Council."""
+"""LLM Council을 위한 FastAPI 백엔드."""
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +14,7 @@ from .council import run_full_council, generate_conversation_title, stage1_colle
 
 app = FastAPI(title="LLM Council API")
 
-# Enable CORS for local development
+# 로컬 개발을 위한 CORS 활성화
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
@@ -25,17 +25,17 @@ app.add_middleware(
 
 
 class CreateConversationRequest(BaseModel):
-    """Request to create a new conversation."""
+    """새 대화를 생성하는 요청."""
     pass
 
 
 class SendMessageRequest(BaseModel):
-    """Request to send a message in a conversation."""
+    """대화에서 메시지를 보내는 요청."""
     content: str
 
 
 class ConversationMetadata(BaseModel):
-    """Conversation metadata for list view."""
+    """목록 보기를 위한 대화 메타데이터."""
     id: str
     created_at: str
     title: str
@@ -43,7 +43,7 @@ class ConversationMetadata(BaseModel):
 
 
 class Conversation(BaseModel):
-    """Full conversation with all messages."""
+    """모든 메시지를 포함하는 전체 대화."""
     id: str
     created_at: str
     title: str
@@ -52,19 +52,19 @@ class Conversation(BaseModel):
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
+    """헬스 체크 엔드포인트."""
     return {"status": "ok", "service": "LLM Council API"}
 
 
 @app.get("/api/conversations", response_model=List[ConversationMetadata])
 async def list_conversations():
-    """List all conversations (metadata only)."""
+    """모든 대화 목록 조회 (메타데이터만)."""
     return storage.list_conversations()
 
 
 @app.post("/api/conversations", response_model=Conversation)
 async def create_conversation(request: CreateConversationRequest):
-    """Create a new conversation."""
+    """새 대화를 생성합니다."""
     conversation_id = str(uuid.uuid4())
     conversation = storage.create_conversation(conversation_id)
     return conversation
@@ -72,41 +72,41 @@ async def create_conversation(request: CreateConversationRequest):
 
 @app.get("/api/conversations/{conversation_id}", response_model=Conversation)
 async def get_conversation(conversation_id: str):
-    """Get a specific conversation with all its messages."""
+    """모든 메시지를 포함한 특정 대화를 가져옵니다."""
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다")
     return conversation
 
 
 @app.post("/api/conversations/{conversation_id}/message")
 async def send_message(conversation_id: str, request: SendMessageRequest):
     """
-    Send a message and run the 3-stage council process.
-    Returns the complete response with all stages.
+    메시지를 보내고 3단계 위원회 프로세스를 실행합니다.
+    모든 단계를 포함한 완전한 응답을 반환합니다.
     """
-    # Check if conversation exists
+    # 대화가 존재하는지 확인
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다")
 
-    # Check if this is the first message
+    # 첫 번째 메시지인지 확인
     is_first_message = len(conversation["messages"]) == 0
 
-    # Add user message
+    # 사용자 메시지 추가
     storage.add_user_message(conversation_id, request.content)
 
-    # If this is the first message, generate a title
+    # 첫 번째 메시지인 경우 제목 생성
     if is_first_message:
         title = await generate_conversation_title(request.content)
         storage.update_conversation_title(conversation_id, title)
 
-    # Run the 3-stage council process
+    # 3단계 위원회 프로세스 실행
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
         request.content
     )
 
-    # Add assistant message with all stages
+    # 모든 단계를 포함한 어시스턴트 메시지 추가
     storage.add_assistant_message(
         conversation_id,
         stage1_results,
@@ -114,7 +114,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         stage3_result
     )
 
-    # Return the complete response with metadata
+    # 메타데이터를 포함한 완전한 응답 반환
     return {
         "stage1": stage1_results,
         "stage2": stage2_results,
@@ -126,50 +126,50 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
 @app.post("/api/conversations/{conversation_id}/message/stream")
 async def send_message_stream(conversation_id: str, request: SendMessageRequest):
     """
-    Send a message and stream the 3-stage council process.
-    Returns Server-Sent Events as each stage completes.
+    메시지를 보내고 3단계 위원회 프로세스를 스트리밍합니다.
+    각 단계가 완료될 때마다 Server-Sent Events를 반환합니다.
     """
-    # Check if conversation exists
+    # 대화가 존재하는지 확인
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다")
 
-    # Check if this is the first message
+    # 첫 번째 메시지인지 확인
     is_first_message = len(conversation["messages"]) == 0
 
     async def event_generator():
         try:
-            # Add user message
+            # 사용자 메시지 추가
             storage.add_user_message(conversation_id, request.content)
 
-            # Start title generation in parallel (don't await yet)
+            # 병렬로 제목 생성 시작 (아직 await하지 않음)
             title_task = None
             if is_first_message:
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
 
-            # Stage 1: Collect responses
+            # 1단계: 응답 수집
             yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
             stage1_results = await stage1_collect_responses(request.content)
             yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
 
-            # Stage 2: Collect rankings
+            # 2단계: 순위 수집
             yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
             stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results)
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
             yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
 
-            # Stage 3: Synthesize final answer
+            # 3단계: 최종 답변 종합
             yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
             stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results)
             yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
-            # Wait for title generation if it was started
+            # 제목 생성이 시작되었으면 대기
             if title_task:
                 title = await title_task
                 storage.update_conversation_title(conversation_id, title)
                 yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
-            # Save complete assistant message
+            # 완전한 어시스턴트 메시지 저장
             storage.add_assistant_message(
                 conversation_id,
                 stage1_results,
@@ -177,11 +177,11 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 stage3_result
             )
 
-            # Send completion event
+            # 완료 이벤트 전송
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
 
         except Exception as e:
-            # Send error event
+            # 오류 이벤트 전송
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(
